@@ -1,0 +1,4 @@
+argparse>=1.4.0
+black>=25.1.0
+logging>=0.4.9.6
+yara-python>=4.5.1

@@ -1,0 +1,12 @@
+[project]
+name = "yayaras"
+version = "0.1.0"
+description = "Yet Another YARA Scanner"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "argparse>=1.4.0",
+    "black>=25.1.0",
+    "logging>=0.4.9.6",
+    "yara-python>=4.5.1",
+]
