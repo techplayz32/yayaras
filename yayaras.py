@@ -24,7 +24,8 @@ import concurrent.futures
 import logging
 import os
 import subprocess
-from typing import List, Optional
+from types import coroutine
+from typing import List, Optional, Tuple
 
 import yara
 
@@ -361,13 +362,29 @@ class RuleLoader:
         if not rule_files:
             logger.warning(f"No rule files found in directory: {rule_dir_path}")
             raise ValueError(f"No rule files found in directory: {rule_dir_path}")
+
+        # checking if syntax or any errors in the rules
+        valid_rule_files = []
+        for rule_file in rule_files:
+            try:
+                # if everything fine, then compile into .yarc and then add in the list
+                yara.compile(filepath=rule_file)
+                valid_rule_files.append(rule_file)
+            except yara.SyntaxError as e:
+                logger.error(f"Syntax error in rule file {rule_file}: {e}")
+            except yara.Error as e:
+                logger.error(f"Error validating rule file {rule_file}: {e}")
+
+        if not valid_rule_files:
+            logger.error(f"No valid YARA rules found in directory: {rule_dir_path}")
+            raise ValueError(f"No valid YARA rules found in directory: {rule_dir_path}")
+
         try:
-            self.rules = yara.compile(filepaths=rule_files)
+            # after all checking, the final compiling
+            self.rules = yara.compile(filepaths=valid_rule_files)
             logger.info(f"Successfully loaded rules from directory: {rule_dir_path}")
-        except yara.SyntaxError as e:
-            logger.error(f"YARA rule syntax error in directory {rule_dir_path}: {e}")
-            raise
         except yara.Error as e:
+            # if anything goes wrong
             logger.error(
                 f"Error compiling YARA rules from directory {rule_dir_path}: {e}"
             )
@@ -469,12 +486,59 @@ class Scanner:
             logger.error(f"Error scanning memory buffer: {e}")
             raise
 
+    def list_files_to_scan(self,
+                           directory_path: str,
+                           recursive: bool) -> List[str]:
+        """
+        Lists files to scan based on extensions and recursion.
+
+        TODO: add args, returns and raises here
+        """
+        files_to_scan = []
+        if recursive:
+            for root, _, files in os.walk(directory_path):
+                for file in files:
+                    if os.path.splitext(file)[1].lower() in INTERESTING_EXTENSIONS:
+                        files_to_scan.append(os.path.join(root, file))
+        else:
+            for file in os.listdir(directory_path):
+                file_path = os.path.join(directory_path, file)
+                if ((os.path.isfile(file_path))
+                        and os.path.splitext(file)[1].lower() in INTERESTING_EXTENSIONS):
+                    files_to_scan.append(file_path)
+        return files_to_scan
+
+    def scan_files(self,
+                   files_to_scan: List[str],
+                   use_multithreading: bool) -> List[dict]:
+        """
+        Scans a list of files to scan, optionally using multithreading.
+
+        TODO: add args, returns and raises here too
+        """
+        results = []
+        if use_multithreading:
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = [executor.submit(self.scan_file_and_format_result, file_path)
+                           for file_path in files_to_scan]
+                for future in futures:
+                    result = future.result()
+                    if result:
+                        results.append(result)
+        else:
+            for file_path in files_to_scan:
+                result = self.scan_file_and_format_result(file_path)
+                if result:
+                    results.append(result)
+        return results
+
+    # refactoring this
     def scan_directory(
         self,
         directory_path: str,
         recursive: bool = False,
         use_multithreading: bool = False,
-    ) -> List[dict]:
+    ) -> Tuple[List[dict], int]:
         """
         Scans files in a directory, optionally recursively, for YARA rule matches.
 
@@ -491,59 +555,24 @@ class Scanner:
             PermissionError: If there is a permission error accessing the directory.
             ValueError: If the directory is not actually a directory.
         """
-        logger.info(
-            f"Scanning directory: {directory_path}, recursive: {recursive}, multithreading: {use_multithreading}"
-        )
+        logger.info(f"Scanning directory: {directory_path}, recursive: {recursive}, "
+                    f"multithreading: {use_multithreading}")
         if not os.path.exists(directory_path):
             logger.error(f"Directory not found: {directory_path}")
             raise FileNotFoundError(f"Directory not found: {directory_path}")
         if not os.access(directory_path, os.R_OK):
             logger.error(f"Permission error accessing directory: {directory_path}")
-            raise PermissionError(
-                f"Permission error accessing directory: {directory_path}"
-            )
+            raise PermissionError(f"Permission error accessing directory: {directory_path}")
         if not os.path.isdir(directory_path):
             logger.error(f"Path is not a directory: {directory_path}")
             raise ValueError(f"Path is not a directory: {directory_path}")
 
-        results = []
-        files_to_scan = []
-
-        if recursive:
-            for root, _, files in os.walk(directory_path):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    if os.path.splitext(file)[1].lower() in INTERESTING_EXTENSIONS:
-                        files_to_scan.append(file_path)
-        else:
-            for file in os.listdir(directory_path):
-                file_path = os.path.join(directory_path, file)
-                if (
-                    os.path.isfile(file_path)
-                    and os.path.splitext(file)[1].lower() in INTERESTING_EXTENSIONS
-                ):
-                    files_to_scan.append(file_path)
-
-        if use_multithreading:
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                futures = [
-                    executor.submit(self.scan_file_and_format_result, file_path)
-                    for file_path in files_to_scan
-                ]
-                for future in futures:
-                    result = future.result()
-                    if result:
-                        results.append(result)
-        else:
-            for file_path in files_to_scan:
-                result = self.scan_file_and_format_result(file_path)
-                if result:
-                    results.append(result)
-
-        logger.info(
-            f"Directory scan completed in: {directory_path}, found matches in {len(results)} files."
-        )
-        return results
+        files_to_scan = self.list_files_to_scan(directory_path, recursive)
+        results = self.scan_files(files_to_scan, use_multithreading)
+        total_files = len(files_to_scan)
+        logger.info(f"Completed directory scan: {directory_path}, scanned {total_files} files, "
+                    f"found matches in {len(results)} files.")
+        return results, total_files
 
     def scan_file_and_format_result(self, file_path: str) -> Optional[dict]:
         """
@@ -558,22 +587,16 @@ class Scanner:
         try:
             matches = self.scan_file(file_path)
             if matches:
-                formatted_matches = []
-                for match in matches:
-                    formatted_matches.append(
-                        {
-                            "rule": match.rule,
-                            "tags": match.tags,
-                            "namespace": match.namespace,
-                            "meta": match.meta,
-                            "strings": [
-                                {
-                                    "identifier": s.identifier,
-                                }
-                                for s in match.strings
-                            ],
-                        }
-                    )
+                formatted_matches = [
+                    {
+                        "rule": match.rule,
+                        "tags": match.tags,
+                        "namespace": match.namespace,
+                        "meta": match.meta,
+                        "strings": [{"identifier": s.identifier} for s in match.strings]
+                    }
+                    for match in matches
+                ]
                 return {"file_path": file_path, "matches": formatted_matches}
         except (FileNotFoundError, PermissionError, yara.Error) as e:
             logger.error(f"Error scanning file {file_path}: {e}")
@@ -685,7 +708,6 @@ def main() -> None:
     )
 
     args = parser.parse_args()
-
     logger.setLevel(args.log_level.upper())
 
     rule_loader = RuleLoader()
@@ -695,14 +717,10 @@ def main() -> None:
         elif os.path.isdir(args.rules_path):
             rule_loader.load_rules_from_directory(args.rules_path)
         else:
-            logger.error(
-                f"Invalid rules path: {args.rules_path}. Path must be a file or directory."
-            )
-            print(
-                f"Error: Invalid rules path. Path must be a file or directory: {args.rules_path}"
-            )
+            logger.error(f"Invalid rules path: {args.rules_path}")
+            print(f"Error: Invalid rules path: {args.rules_path}")
             return
-    except (FileNotFoundError, yara.SyntaxError, yara.Error, ValueError) as e:
+    except (FileNotFoundError, ValueError, yara.Error) as e:
         logger.error(f"Rule loading failed: {e}")
         print(f"Error loading rules: {e}")
         return
@@ -711,99 +729,56 @@ def main() -> None:
         scanner = Scanner(rule_loader.get_rules())
         result_handler = ResultHandler(verbose=args.verbose)
         scan_results = []
-
         target_path_to_scan = args.target_path
 
         if args.target_path.lower().endswith(".exe") and args.pyi:
-            if not os.path.exists("pyinstxtractor.py"):
-                logger.error(
-                    "pyinstxtractor.py not found in the same directory. Please ensure it is present or provide the correct path."
-                )
-                print(
-                    "Error: pyinstxtractor.py not found. Ensure it's in the same directory."
-                )
-                return
-
-            logger.info(
-                f"Attempting to extract {args.target_path} using pyinstxtractor.py..."
-            )
+            logger.info(f"Extracting {args.target_path} with pyinstxtractor.py...")
             try:
-                command = ["python", "pyinstxtractor.py", args.target_path]
-                process = subprocess.run(
-                    command, capture_output=True, text=True, check=True
-                )
-                logger.info(
-                    f"pyinstxtractor.py executed successfully for {args.target_path}. Output:\n{process.stdout}\nErrors:\n{process.stderr}"
-                )
-
-                extracted_dir = os.path.join(
-                    os.path.dirname(os.path.abspath(__file__)),
-                    f"{os.path.splitext(os.path.basename(args.target_path))[0]}.exe_extracted",
-                )
-                logger.debug(f"Constructed extracted directory path: {extracted_dir}")
-                logger.debug(f"Checking if extracted directory exists: {extracted_dir}")
-
+                subprocess.run(["python", "pyinstxtractor.py", args.target_path], check=True,
+                               capture_output=True, text=True)
+                extracted_dir = f"{os.path.splitext(args.target_path)[0]}.exe_extracted"
                 if os.path.isdir(extracted_dir):
-                    logger.debug(f"Extracted directory EXISTS: {extracted_dir}")
-                    target_path_to_scan = extracted_dir
                     logger.info(f"Scanning extracted directory: {extracted_dir}")
+                    target_path_to_scan = extracted_dir
                 else:
-                    logger.debug(f"Extracted directory DOES NOT EXIST: {extracted_dir}")
-                    logger.warning(
-                        f"Extraction directory not found after running pyinstxtractor.py, scanning original EXE: {args.target_path}"
-                    )
-
+                    logger.warning(f"Extraction failed, scanning original file: {args.target_path}")
             except subprocess.CalledProcessError as e:
-                logger.error(
-                    f"Error running pyinstxtractor.py on {args.target_path}. Please ensure pyinstxtractor.py is correctly configured and works. Error: {e.stderr}"
-                )
+                logger.error(f"Error running pyinstxtractor.py: {e.stderr}")
                 print(f"Error running pyinstxtractor.py: {e.stderr}")
-                return
-            except FileNotFoundError:
-                logger.error(
-                    "Python executable not found. Ensure Python is in your PATH to run pyinstxtractor.py"
-                )
-                print("Error: Python not found in PATH. Cannot run pyinstxtractor.py")
                 return
 
         if args.memory:
-            memory_data = input(
-                "Enter memory buffer data to scan (or pipe in): "
-            ).encode("latin1")
+            memory_data = input("Enter memory buffer data to scan: ").encode("latin1")
             matches = scanner.scan_memory(memory_data)
             if matches:
-                scan_results.append(
-                    {"file_path": "<memory buffer>", "matches": matches}
-                )
+                scan_results.append({"file_path": "<memory buffer>", "matches": matches})
+            if args.verbose:
+                result_handler.output_results(scan_results)
+                print(f"\nSummary: Scanned 1 memory buffer, found matches in {1 if scan_results else 0} buffer.")
         elif os.path.isdir(target_path_to_scan):
-            scan_results = scanner.scan_directory(
-                target_path_to_scan,
-                recursive=args.recursive,
-                use_multithreading=args.threads,
-            )
+            scan_results, total_files = scanner.scan_directory(
+                target_path_to_scan, recursive=args.recursive, use_multithreading=args.threads)
+            result_handler.output_results(scan_results)
+            if args.verbose:
+                print(f"\nSummary: Scanned {total_files} files, found matches in {len(scan_results)} files.")
         elif os.path.isfile(target_path_to_scan):
-            file_matches_result = scanner.scan_file_and_format_result(
-                target_path_to_scan
-            )
-            if file_matches_result:
-                scan_results.append(file_matches_result)
+            file_result = scanner.scan_file_and_format_result(target_path_to_scan)
+            if file_result:
+                scan_results.append(file_result)
+            result_handler.output_results(scan_results)
+            if args.verbose:
+                print(f"\nSummary: Scanned 1 file, found matches in {1 if scan_results else 0} file.")
         else:
-            logger.error(
-                f"Invalid target path: {args.target_path}. Path must be a file, directory, or use --memory."
-            )
-            print(
-                f"Error: Invalid target path. Path must be a file or directory, or use --memory option: {args.target_path}"
-            )
+            logger.error(f"Invalid target path: {args.target_path}")
+            print(f"Error: Invalid target path: {args.target_path}")
             return
 
-        result_handler.output_results(scan_results)
-
     except (FileNotFoundError, PermissionError, ValueError, TypeError, yara.Error) as e:
-        logger.error(f"Scanning process failed: {e}")
-        print(f"Scanning error: {e}")
+        logger.error(f"Scanning failed: {e}")
+        print(f"Error: {e}")
         return
 
-    logger.info("YARA scanning process completed.")
+    logger.info("YARA scanning completed.")
 
 
 if __name__ == "__main__":
