@@ -108,6 +108,7 @@ rule YAYRDR {
         $b61 = "Pyarmor"
         $b62 = "C2"
         $a63 = "c2"
+        // a
 
         // suspicious urls using direct IP addresses
         $c1 = /http:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/
