@@ -43,6 +43,8 @@ rule YAYRDR {
         $a34 = "User-Agent" nocase
         $a35 = "place your discord webhook here" nocase
         $a36 = "Pyarmor" nocase
+        $a37 = "C2" nocase
+        $a38 = "c2" nocase
 
         $b1 = "CreateRemoteThread"
         $b2 = "VirtualAllocEx"
@@ -104,6 +106,8 @@ rule YAYRDR {
         $b59 = "User-Agent"
         $b60 = "place your discord webhook here"
         $b61 = "Pyarmor"
+        $b62 = "C2"
+        $a63 = "c2"
 
         // suspicious urls using direct IP addresses
         $c1 = /http:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/
