@@ -2,7 +2,7 @@
 
 Scanner for Simple Indicators and YARA rules, makes job gets easier. This project aimed on making scanning malware easier and researching new malware families, since there are many of new script kiddies around.
 
-## Prerequirements
+## Requirements
 
 I suggest to use [UV](https://github.com/astral-sh/uv) for managing the project and adding own changes.
 
@@ -33,7 +33,7 @@ YAYARAS is open-source software licensed under the **GNU General Public License 
 
 This project uses code/executable from other open-source projects with their own licenses:
 
-* **YAYARAS (project as a whole) and [pyinstxtractor](https://github.com/extremecoders-re/pyinstxtractor) (if used):** GPLv3 - [LICENSE](LICENSE)
+* **YAYARAS, [CAPEv2](https://github.com/kevoreilly/CAPEv2) (project + rules as a whole) and [pyinstxtractor](https://github.com/extremecoders-re/pyinstxtractor) (if used):** GPLv3 - [LICENSE](LICENSE) / [CAPEv2 LICENSE](https://github.com/kevoreilly/CAPEv2/blob/master/LICENSE)
 * **[YARA](https://github.com/virustotal/yara):** BSD 3-Clause License - [LICENSE-BSD-3-Clause.txt](LICENSE-BSD-3-Clause.txt)
 
 You should know and, do before changing code in YAYARAS that:

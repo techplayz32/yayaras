@@ -5,6 +5,7 @@
 #  Copyright (c) 2025 - Present
 #  - techplayz32,
 #  - The YARA Authors,
+#  - The CAPEv2 Rules Authors,
 #  - The pyinstxtractor Authors (extremecoders-re, maximevince, 2press)
 #  and contributors of YAYARAS.
 #
