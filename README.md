@@ -27,6 +27,10 @@ logging>=0.4.9.6
 yara-python>=4.5.1
 ```
 
+## Supported Malware
+
+You can see in [MALWARE.md](MALWARE.md) which malware supported and detected by YAYARAS, as well you can see which planed in the future.
+
 ## License
 
 YAYARAS is open-source software licensed under the **GNU General Public License v3 (GPLv3)**. See the full [LICENSE](LICENSE) file for details.
